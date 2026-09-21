@@ -486,7 +486,11 @@ input[type="text"],input[type="date"]{width:100%;padding:9px 10px;border:1px sol
     var isMF = (iCalc >= 0 || iTr >= 0);
 
     var list = load(), seen = {};
-    list.forEach(function(e){ seen[e.date + "|" + e.amount + "|" + e.category + "|" + e.memo] = 1; });
+    list.forEach(function(e){
+      var base = e.date + "|" + e.amount + "|" + e.category + "|" + e.memo;
+      seen[(isOut(e) ? "out|" : "in|") + base] = 1;
+      seen[base] = 1; // 旧い形式のキー（支出のみだった頃の取り込み分）
+    });
 
     var added = 0, income = 0, dup = 0, bad = 0, excluded = 0, transfer = 0;
 
@@ -504,33 +508,38 @@ input[type="text"],input[type="date"]{width:100%;padding:9px 10px;border:1px sol
       var amt = toNum(cell(iA));
       var date = normDate(cell(iD));
       if (!amt || !date){ bad++; return; }
-      if (amt > 0){ income++; return; }
+
+      var isIncome = (amt > 0);
 
       var memo = cell(iM);
       var sub = cell(iSub);
       if (sub && sub !== "未分類" && memo.indexOf(sub) < 0) memo = memo ? (memo + "／" + sub) : sub;
 
-      var cat = cell(iC) || "その他";
-      if (cat === "未分類") cat = "その他";
+      var cat = cell(iC) || (isIncome ? "その他の収入" : "その他");
+      if (cat === "未分類") cat = isIncome ? "その他の収入" : "その他";
+      if (isIncome && cat === "収入") cat = "その他の収入";
 
       var amount = Math.abs(Math.round(amt));
-      var key = date + "|" + amount + "|" + cat + "|" + memo;
-      if (seen[key]){ dup++; return; }
+      var base = date + "|" + amount + "|" + cat + "|" + memo;
+      var key = (isIncome ? "in|" : "out|") + base;
+      if (seen[key] || (!isIncome && seen[base])){ dup++; return; }
       seen[key] = 1;
+      if (!isIncome) seen[base] = 1;
       list.push({
         id: "csv-" + date + "-" + amount + "-" + Math.random().toString(36).slice(2,7),
         amount: amount, category: cat, memo: memo, date: date,
-        sat: null, kind: "out", createdAt: new Date().toISOString(), src: "csv"
+        sat: null, kind: isIncome ? "in" : "out",
+        createdAt: new Date().toISOString(), src: "csv"
       });
-      added++;
+      if (isIncome) income++; else added++;
     });
 
     if (!store(list)) return;
     refreshHeader(); renderList();
 
-    var msg = (isMF ? "マネーフォワード形式として読みました。" : "") + added + "件を取り込みました。";
+    var msg = (isMF ? "マネーフォワード形式として読みました。" : "")
+            + "支出 " + added + "件、収入 " + income + "件を取り込みました。";
     var skip = [];
-    if (income) skip.push("収入 " + income + "件");
     if (transfer) skip.push("口座間の振替 " + transfer + "件");
     if (excluded) skip.push("計算対象外 " + excluded + "件");
     if (dup) skip.push("重複 " + dup + "件");
