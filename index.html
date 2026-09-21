@@ -534,11 +534,11 @@ input[type="text"],input[type="date"]{width:100%;padding:9px 10px;border:1px sol
     }
     var isMF = (iCalc >= 0 || iTr >= 0);
 
-    var list = load(), seen = {};
+    // 同じ内容が何件あるかを数える。同じ日に同じ店で同じ額、は実際に起きる
+    var list = load(), seen = {}, cnt = {};
     list.forEach(function(e){
-      var base = e.date + "|" + e.amount + "|" + e.category + "|" + e.memo;
-      seen[(isOut(e) ? "out|" : "in|") + base] = 1;
-      seen[base] = 1; // 旧い形式のキー（支出のみだった頃の取り込み分）
+      var k = (isOut(e) ? "out|" : "in|") + e.date + "|" + e.amount + "|" + e.category + "|" + e.memo;
+      seen[k] = (seen[k] || 0) + 1;
     });
 
     var added = 0, income = 0, dup = 0, bad = 0, excluded = 0, transfer = 0;
@@ -569,11 +569,11 @@ input[type="text"],input[type="date"]{width:100%;padding:9px 10px;border:1px sol
       if (isIncome && cat === "収入") cat = "その他の収入";
 
       var amount = Math.abs(Math.round(amt));
-      var base = date + "|" + amount + "|" + cat + "|" + memo;
-      var key = (isIncome ? "in|" : "out|") + base;
-      if (seen[key] || (!isIncome && seen[base])){ dup++; return; }
-      seen[key] = 1;
-      if (!isIncome) seen[base] = 1;
+      var key = (isIncome ? "in|" : "out|") + date + "|" + amount + "|" + cat + "|" + memo;
+      // すでに持っている件数を超えた分だけ取り込む。入れ直しても増えないし、
+      // 同じ日に2回買った分は2回とも残る
+      cnt[key] = (cnt[key] || 0) + 1;
+      if (cnt[key] <= (seen[key] || 0)){ dup++; return; }
       list.push({
         id: "csv-" + date + "-" + amount + "-" + Math.random().toString(36).slice(2,7),
         amount: amount, category: cat, memo: memo, date: date,
