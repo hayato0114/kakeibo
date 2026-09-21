@@ -155,7 +155,7 @@ input[type="text"],input[type="date"]{
     <input id="date" type="date">
   </div>
 
-  <button id="save" disabled>保存</button>
+  <button id="save">保存</button>
 </div>
 
 <div id="list"></div>
@@ -216,7 +216,6 @@ input[type="text"],input[type="date"]{
       Array.prototype.forEach.call(catBox.children, function(x){ x.setAttribute("aria-pressed","false"); });
       b.setAttribute("aria-pressed","true");
       pickedCat = c.n;
-      checkReady();
     });
     catBox.appendChild(b);
   });
@@ -228,7 +227,6 @@ input[type="text"],input[type="date"]{
       Array.prototype.forEach.call(satBox.children, function(x){ x.setAttribute("aria-pressed","false"); });
       b.setAttribute("aria-pressed","true");
       pickedSat = Number(b.dataset.v);
-      checkReady();
     });
   });
 
@@ -238,15 +236,19 @@ input[type="text"],input[type="date"]{
   var saveBtn  = document.getElementById("save");
   dateEl.value = today();
 
-  function checkReady(){
-    var ok = Number(amountEl.value) > 0 && pickedCat && pickedSat;
-    saveBtn.disabled = !ok;
+  // 足りないものがあれば、何が足りないかを教える（押せないボタンにはしない）
+  function missing(){
+    var m = [];
+    if (!(Number(amountEl.value) > 0)) m.push("金額");
+    if (!pickedCat) m.push("カテゴリ");
+    if (!pickedSat) m.push("満足度");
+    return m;
   }
-  amountEl.addEventListener("input", checkReady);
 
   saveBtn.addEventListener("click", function(){
+    var lack = missing();
+    if (lack.length){ toast(lack.join("と") + "を入れてください"); return; }
     var amt = Math.round(Number(amountEl.value));
-    if (!(amt > 0) || !pickedCat || !pickedSat) return;
     var list = load();
     list.push({
       id: Date.now() + "-" + Math.random().toString(36).slice(2,7),
@@ -263,7 +265,6 @@ input[type="text"],input[type="date"]{
     pickedCat = null; pickedSat = null;
     Array.prototype.forEach.call(catBox.children, function(x){ x.setAttribute("aria-pressed","false"); });
     Array.prototype.forEach.call(satBox.children, function(x){ x.setAttribute("aria-pressed","false"); });
-    checkReady();
     render();
     toast("保存しました  " + yen(amt));
     amountEl.focus();
