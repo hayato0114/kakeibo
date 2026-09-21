@@ -428,31 +428,91 @@ input[type="text"],input[type="date"]{width:100%;padding:9px 10px;border:1px sol
     var e = document.getElementById("impresult");
     e.textContent = msg; e.classList.add("on");
   }
+  // 数字だけ拾う（"−1,450" や "¥1,450" にも耐える）
+  function toNum(s){
+    var t = "", i, ch;
+    for (i = 0; i < s.length; i++){
+      ch = s.charAt(i);
+      if ((ch >= "0" && ch <= "9") || ch === ".") t += ch;
+      else if (ch === "-" || ch === "−" || ch === "－") t += "-";
+    }
+    return t === "" || t === "-" ? NaN : Number(t);
+  }
+  // 2026/9/1 も 2026-09-01 も受ける
+  function normDate(s){
+    var t = s.split("/").join("-").split(".").join("-").split("年").join("-").split("月").join("-").split("日").join("");
+    var p = t.split("-");
+    if (p.length < 3 || p[0].length !== 4) return "";
+    var y = Number(p[0]), m = Number(p[1]), d = Number(p[2]);
+    if (!y || !m || !d || m > 12 || d > 31) return "";
+    return p[0] + "-" + pad(m) + "-" + pad(d);
+  }
+
   function importCsv(text){
     var lines = text.split(/\r\n|\r|\n/).filter(function(x){ return x.trim(); });
     if (!lines.length){ showImport("ファイルが空でした。"); return; }
     var bom = String.fromCharCode(0xFEFF);
     var head = splitCsvLine(lines.shift()).map(function(h){
-      return h.split(bom).join("").trim();
+      return h.split(bom).join("").split('"').join("").trim();
     });
-    var iA = head.indexOf("金額"), iD = head.indexOf("日付");
-    var iM = head.indexOf("メモ"), iC = head.indexOf("カテゴリー名");
-    if (iC < 0) iC = head.indexOf("カテゴリ");
-    if (iA < 0 || iD < 0){ showImport("見出しが読めませんでした。「金額」「日付」の列が必要です。"); return; }
+
+    // 列の名前はアプリによって違うので、候補を順に探す
+    function findCol(names){
+      var i, j;
+      for (i = 0; i < names.length; i++){
+        j = head.indexOf(names[i]);
+        if (j >= 0) return j;
+      }
+      for (j = 0; j < head.length; j++){
+        for (i = 0; i < names.length; i++){
+          if (head[j].indexOf(names[i]) >= 0) return j;
+        }
+      }
+      return -1;
+    }
+
+    var iA = findCol(["金額（円）", "金額(円)", "金額", "出金金額", "支払金額"]);
+    var iD = findCol(["日付", "取引日", "利用日"]);
+    var iC = findCol(["大項目", "カテゴリー名", "カテゴリ", "費目"]);
+    var iM = findCol(["内容", "メモ", "摘要", "お店"]);
+    var iSub = findCol(["中項目"]);
+    var iCalc = findCol(["計算対象"]);
+    var iTr = findCol(["振替"]);
+
+    if (iA < 0 || iD < 0){
+      showImport("見出しが読めませんでした。「金額」と「日付」にあたる列が必要です。（読み取った見出し：" + head.join(" / ") + "）");
+      return;
+    }
+    var isMF = (iCalc >= 0 || iTr >= 0);
 
     var list = load(), seen = {};
     list.forEach(function(e){ seen[e.date + "|" + e.amount + "|" + e.category + "|" + e.memo] = 1; });
 
-    var added = 0, income = 0, dup = 0, bad = 0;
-    var dateRe = new RegExp("^[0-9]{4}-[0-9]{2}-[0-9]{2}$");
+    var added = 0, income = 0, dup = 0, bad = 0, excluded = 0, transfer = 0;
+
     lines.forEach(function(l){
       var c = splitCsvLine(l);
-      var amt = Number(String(c[iA] || "").trim());
-      var date = String(c[iD] || "").trim().split("/").join("-");
-      if (!amt || !dateRe.test(date)){ bad++; return; }
+      function cell(i){
+        if (i < 0 || c[i] === undefined || c[i] === null) return "";
+        return String(c[i]).split('"').join("").trim();
+      }
+
+      // マネーフォワード：計算対象でない行と、口座間の振替は支出ではない
+      if (iCalc >= 0 && cell(iCalc) === "0"){ excluded++; return; }
+      if (iTr >= 0 && cell(iTr) === "1"){ transfer++; return; }
+
+      var amt = toNum(cell(iA));
+      var date = normDate(cell(iD));
+      if (!amt || !date){ bad++; return; }
       if (amt > 0){ income++; return; }
-      var memo = iM >= 0 ? String(c[iM] || "").trim() : "";
-      var cat  = iC >= 0 ? String(c[iC] || "").trim() : "その他";
+
+      var memo = cell(iM);
+      var sub = cell(iSub);
+      if (sub && sub !== "未分類" && memo.indexOf(sub) < 0) memo = memo ? (memo + "／" + sub) : sub;
+
+      var cat = cell(iC) || "その他";
+      if (cat === "未分類") cat = "その他";
+
       var amount = Math.abs(Math.round(amt));
       var key = date + "|" + amount + "|" + cat + "|" + memo;
       if (seen[key]){ dup++; return; }
@@ -464,11 +524,15 @@ input[type="text"],input[type="date"]{width:100%;padding:9px 10px;border:1px sol
       });
       added++;
     });
+
     if (!store(list)) return;
     refreshHeader(); renderList();
-    var msg = added + "件を取り込みました。";
+
+    var msg = (isMF ? "マネーフォワード形式として読みました。" : "") + added + "件を取り込みました。";
     var skip = [];
     if (income) skip.push("収入 " + income + "件");
+    if (transfer) skip.push("口座間の振替 " + transfer + "件");
+    if (excluded) skip.push("計算対象外 " + excluded + "件");
     if (dup) skip.push("重複 " + dup + "件");
     if (bad) skip.push("読めない行 " + bad + "件");
     if (skip.length) msg += "（飛ばしたもの：" + skip.join(" / ") + "）";
