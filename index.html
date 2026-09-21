@@ -21,6 +21,7 @@
   --fixed:#7A8A96;
   --fixed-soft:#E4E9EC;
   --income:#3A6B8A;
+  --warn-soft:#F6E7E3;
 }
 @media (prefers-color-scheme: dark){
   :root{
@@ -39,6 +40,7 @@
     --fixed:#8A99A4;
     --fixed-soft:#222A2E;
     --income:#7FB0CE;
+    --warn-soft:#2E211E;
   }
 }
 *{box-sizing:border-box}
@@ -172,6 +174,42 @@ input[type="text"],input[type="date"]{width:100%;padding:9px 10px;border:1px sol
   background:var(--accent-soft);border-radius:7px;line-height:1.8;display:none}
 .impresult.on{display:block}
 
+.ratio{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.ratio b{font-size:38px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1;color:var(--accent)}
+.ratio span{font-size:12px;color:var(--ink-faint);font-variant-numeric:tabular-nums}
+.ratio.warn b{color:var(--sat-mid)}
+.ratio.over b{color:var(--warn)}
+.gauge{height:8px;border-radius:4px;background:var(--line);margin-top:11px;overflow:hidden}
+.gauge i{display:block;height:100%;background:var(--accent);border-radius:4px}
+.gauge i.warn{background:var(--sat-mid)}
+.gauge i.over{background:var(--warn)}
+
+.fund{background:var(--accent-soft);border-radius:8px;padding:12px;margin-bottom:10px}
+.fund .k{font-size:11px;color:var(--ink-soft);font-weight:700}
+.fund .v2{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums;margin-top:2px;color:var(--accent)}
+.fund .s{font-size:11.5px;color:var(--ink-faint);margin-top:3px}
+
+.cardform{display:flex;flex-direction:column;gap:8px;margin-bottom:12px}
+.cardrow{display:grid;grid-template-columns:1fr auto 24px;gap:8px;align-items:center;font-size:13px}
+.cardrow input{width:120px;padding:7px 9px;border:1px solid var(--line);border-radius:7px;
+  background:var(--bg);color:var(--ink);font-size:14px;text-align:right;font-variant-numeric:tabular-nums}
+.cardrow .unit{font-size:11.5px;color:var(--ink-faint)}
+.splitbox.w{background:var(--warn-soft)}
+.warnline{font-size:12.5px;color:var(--warn);margin:10px 0 0;line-height:1.9;
+  background:var(--warn-soft);border-radius:7px;padding:10px}
+
+.idealrow{display:grid;grid-template-columns:72px 1fr 40px 54px;gap:8px;align-items:center;
+  padding:7px 0;border-bottom:1px solid var(--line);font-size:12.5px}
+.idealrow:last-of-type{border-bottom:0}
+.idealrow .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ibar{position:relative;height:9px;background:var(--line);border-radius:5px;overflow:hidden}
+.ibar .fl{position:absolute;left:0;top:0;height:100%;background:var(--accent);border-radius:5px}
+.ibar .fl.over{background:var(--warn)}
+.ibar .mk{position:absolute;top:-2px;width:2px;height:13px;background:var(--ink-soft);border-radius:1px}
+.idealrow .pc{text-align:right;font-variant-numeric:tabular-nums;font-weight:700}
+.idealrow .pc.over{color:var(--warn)}
+.idealrow .id{text-align:right;font-size:11px;color:var(--ink-faint);white-space:nowrap}
+
 .empty{text-align:center;color:var(--ink-faint);font-size:13.5px;padding:26px 10px;line-height:2;white-space:pre-line}
 .foot{font-size:11.5px;color:var(--ink-faint);text-align:center;padding:8px 0 0;line-height:1.9}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(70px + env(safe-area-inset-bottom,0px));
@@ -275,6 +313,14 @@ input[type="text"],input[type="date"]{width:100%;padding:9px 10px;border:1px sol
 
   var FIXED = {};
   CATS_OUT.forEach(function(c){ if (c.f) FIXED[c.n] = 1; });
+
+  // 手取りに対する理想の割合（％）。合計78％で、残り22％が貯蓄にまわる想定
+  var IDEAL = {
+    "家賃":25, "車関係":15, "食費":12, "光熱費":5, "通信費":5,
+    "外食費":3, "日用品":3, "交通費":3, "趣味":3, "衣服":3,
+    "交際費":2, "書籍/資格":2, "医療費":1, "サブスク":1
+  };
+  var CARDKEY = "kakeibo_card_v1";
 
   var SATCOLOR = {1:"var(--sat-low)", 2:"var(--sat-mid)", 3:"var(--sat-high)"};
   var SATNAME  = {1:"いまいち", 2:"ふつう", 3:"よかった"};
@@ -672,6 +718,92 @@ input[type="text"],input[type="date"]{width:100%;padding:9px 10px;border:1px sol
     return {out:o, inc:i, cats:cats, sat:sat, vari:vari, fix:fix};
   }
 
+  // 毎月は出ない大きな支出（特別費）を拾って、月あたりいくら積み立てればよいかを出す
+  function specialFund(list){
+    var ms = monthsOf(list);
+    var n = ms.length || 1;
+    var seen = {};
+    list.forEach(function(e){
+      if (!isOut(e)) return;
+      if (!seen[e.category]) seen[e.category] = {};
+      seen[e.category][e.date.slice(0,7)] = 1;
+    });
+    var items = [], total = 0;
+    list.forEach(function(e){
+      if (!isOut(e) || FIXED[e.category]) return;
+      if (e.amount < 5000) return;
+      var appear = Object.keys(seen[e.category] || {}).length;
+      if (appear / n >= 0.6) return;  // ほぼ毎月出ているものは特別費ではない
+      total += e.amount;
+      items.push(e);
+    });
+    items.sort(function(a,b){ return b.amount - a.amount; });
+    return {total:total, months:n, monthly: n ? total / n : 0, items:items};
+  }
+
+  function loadCard(){
+    try { return JSON.parse(localStorage.getItem(CARDKEY)) || {}; } catch(e){ return {}; }
+  }
+  function saveCard(o){
+    try { localStorage.setItem(CARDKEY, JSON.stringify(o)); return true; }
+    catch(e){ toast("保存できませんでした"); return false; }
+  }
+
+  // カードの未払い残高。取り込んだデータには出てこないので、自分で入れる
+  function cardCard(){
+    var c = loadCard();
+    var wrap = el("div","card");
+    wrap.appendChild(el("h2", null, "カードで、あとから払う分"));
+
+    var form = el("div","cardform");
+    function row(label, key, unit, ph){
+      var r = el("label","cardrow");
+      r.appendChild(el("span", null, label));
+      var inp = document.createElement("input");
+      inp.type = "number"; inp.inputMode = "numeric"; inp.min = "0"; inp.step = "1";
+      inp.placeholder = ph || "0";
+      if (c[key] !== undefined && c[key] !== null && c[key] !== "") inp.value = c[key];
+      inp.addEventListener("change", function(){
+        var o = loadCard();
+        o[key] = inp.value === "" ? "" : Number(inp.value);
+        o.updated = today();
+        if (saveCard(o)) { toast("保存しました"); renderReport(); }
+      });
+      r.appendChild(inp);
+      r.appendChild(el("span","unit", unit));
+      return r;
+    }
+    form.appendChild(row("来月の引き落とし", "next", "円"));
+    form.appendChild(row("分割・リボの残高", "loan", "円"));
+    form.appendChild(row("その手数料（年率）", "rate", "％", "15"));
+    wrap.appendChild(form);
+
+    var next = Number(c.next) || 0, loan = Number(c.loan) || 0, rate = Number(c.rate) || 0;
+    if (next || loan){
+      var tot = el("div","split");
+      function sb2(cls, k, v, s){
+        var d = el("div","splitbox " + cls);
+        d.appendChild(el("div","k", k));
+        d.appendChild(el("div","v2", v));
+        d.appendChild(el("div","s", s));
+        return d;
+      }
+      tot.appendChild(sb2("f", "来月出ていく", yen(next), "もう使った分"));
+      tot.appendChild(sb2(loan ? "w" : "f", "手数料がつく分", yen(loan), rate ? "年" + rate + "％" : "年率を入れる"));
+      wrap.appendChild(tot);
+    }
+    if (loan && rate){
+      var fee = loan * rate / 100;
+      var p = el("p","warnline");
+      p.textContent = "この残高を1年持ち続けると、手数料だけで " + yen(fee) + " かかります（月およそ " + yen(fee/12) + "）。"
+        + "まとめて返せば、その日から手数料は止まります。";
+      wrap.appendChild(p);
+    }
+    if (c.updated) wrap.appendChild(el("p","hint", c.updated.split("-").join("/") + " に自分で入れた数字です。カードの画面を見たら、ここも直してください。"));
+    else wrap.appendChild(el("p","hint","カードの明細を見て、この3つを入れてください。入れておくと、来月いくら引かれるかが毎回ここに出ます。"));
+    return wrap;
+  }
+
   function barChart(list, ym){
     var ms = [];
     for (var i = 11; i >= 0; i--) ms.push(addMonth(ym, -i));
@@ -860,6 +992,59 @@ input[type="text"],input[type="date"]{width:100%;padding:9px 10px;border:1px sol
     kp.appendChild(kpi("収支", signed(cur.inc - cur.out), (cur.inc - cur.out) < 0 ? "neg" : ""));
     box.appendChild(kp);
 
+    // 手取りに対して、いくら使ったか
+    var rc = el("div","card");
+    rc.appendChild(el("h2", null, "手取りのうち、いくら使ったか"));
+    if (!cur.inc){
+      rc.appendChild(el("p","empty","この月は収入の記録がありません。\n収入を入れると、使いすぎかどうかが1つの数字で見えます。"));
+    } else {
+      var pct = Math.round(cur.out / cur.inc * 100);
+      var big = el("div","ratio" + (pct > 100 ? " over" : pct > 90 ? " warn" : ""));
+      big.appendChild(el("b", null, pct + "%"));
+      big.appendChild(el("span", null, yen(cur.out) + " ÷ " + yen(cur.inc)));
+      rc.appendChild(big);
+      var gauge = el("div","gauge");
+      var fill = el("i");
+      fill.style.width = Math.min(pct, 100) + "%";
+      if (pct > 100) fill.className = "over"; else if (pct > 90) fill.className = "warn";
+      gauge.appendChild(fill);
+      rc.appendChild(gauge);
+      rc.appendChild(el("p","hint",
+        pct > 100 ? "100％を超えています。足りない分は貯金か、賞与か、借入で埋めています。"
+        : pct > 90 ? "ほとんど使い切っています。貯まっていません。"
+        : "残った " + (100 - pct) + "％ が手元に残る計算です。80％以下なら安全圏です。"));
+    }
+    box.appendChild(rc);
+
+    // 毎月は出ない大きな支出を拾って、積立額を出す
+    var sf = specialFund(list);
+    var sfc = el("div","card");
+    sfc.appendChild(el("h2", null, "毎月は出ないのに、必ず来るもの"));
+    if (!sf.items.length){
+      sfc.appendChild(el("p","empty","まだ見つかっていません。\nデータが増えると、年に数回だけ出る支出をここに集めます。"));
+    } else {
+      var sb = el("div","fund");
+      sb.appendChild(el("div","k","月にこれだけ貯めておく"));
+      sb.appendChild(el("div","v2", yen(sf.monthly)));
+      sb.appendChild(el("div","s", sf.months + "ヶ月で " + yen(sf.total) + " 出ていました"));
+      sfc.appendChild(sb);
+      sf.items.slice(0,8).forEach(function(e){
+        var row = el("div","catrow");
+        row.appendChild(el("span", null, e.category + (e.memo ? "　" + e.memo : "")));
+        row.appendChild(el("span","amt", yen(e.amount)));
+        row.appendChild(el("span","dif", e.date.slice(2).split("-").join("/")));
+        sfc.appendChild(row);
+      });
+      if (sf.items.length > 8){
+        sfc.appendChild(el("p","hint","ほかに " + (sf.items.length - 8) + " 件あります。"));
+      }
+      sfc.appendChild(el("p","hint","5,000円以上で、ほとんどの月には出ていない支出だけを集めています。これを月割りにして先に取り分けておくと、来た月に慌てません。"));
+    }
+    box.appendChild(sfc);
+
+    // カードの未払い残高（自分で入れた数字）
+    box.appendChild(cardCard());
+
     var cc0 = cumChart(list);
     if (cc0) box.appendChild(cc0);
 
@@ -921,6 +1106,36 @@ input[type="text"],input[type="date"]{width:100%;padding:9px 10px;border:1px sol
       });
     }
     box.appendChild(cc);
+
+    // 理想の割合と比べる
+    var ic = el("div","card");
+    ic.appendChild(el("h2", null, "理想の割合と比べる"));
+    if (!cur.inc){
+      ic.appendChild(el("p","empty","この月は収入の記録がないので、割合が出せません。"));
+    } else {
+      var names = Object.keys(IDEAL).filter(function(k){ return cur.cats[k] || IDEAL[k] >= 5; });
+      names.sort(function(a,b){ return (cur.cats[b]||0) - (cur.cats[a]||0); });
+      names.forEach(function(k){
+        var v = cur.cats[k] || 0;
+        var p = v / cur.inc * 100;
+        var ideal = IDEAL[k];
+        var over = p - ideal;
+        var row = el("div","idealrow");
+        row.appendChild(el("span","nm", k));
+        var bar = el("div","ibar");
+        var mark = el("i","mk");
+        mark.style.left = Math.min(ideal, 100) + "%";
+        var fill = el("i", over > 0 ? "fl over" : "fl");
+        fill.style.width = Math.min(p, 100) + "%";
+        bar.appendChild(fill); bar.appendChild(mark);
+        row.appendChild(bar);
+        row.appendChild(el("span","pc" + (over > 0 ? " over" : ""), Math.round(p) + "%"));
+        row.appendChild(el("span","id", "目安" + ideal + "%"));
+        ic.appendChild(row);
+      });
+      ic.appendChild(el("p","hint","縦の線が目安です。手取りに対する割合で見ています。目安を全部足すと78％で、残り22％が貯金にまわる形です。車がある人は「車関係」が重くなりがちです。"));
+    }
+    box.appendChild(ic);
 
     var sc = el("div","card");
     sc.appendChild(el("h2", null, "満足度でみる"));
