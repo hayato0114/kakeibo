@@ -733,22 +733,22 @@ input[type="text"],input[type="date"]{width:100%;padding:9px 10px;border:1px sol
     return {out:o, inc:i, cats:cats, sat:sat, vari:vari, fix:fix};
   }
 
-  // 毎月は出ない大きな支出（特別費）を拾って、月あたりいくら積み立てればよいかを出す
+  // 毎月は出ない大きな支出（特別費）を拾って、月あたりいくら積み立てればよいかを出す。
+  // カテゴリ単位で見ると「交通費は毎月出る」となり、年2回の定期券まで一緒に外れてしまう。
+  // そこで1件ずつ金額で見て、同じ額が何度も出るもの（ローンなど）だけを外す
   function specialFund(list){
     var ms = monthsOf(list);
     var n = ms.length || 1;
-    var seen = {};
+    var same = {};
     list.forEach(function(e){
       if (!isOut(e)) return;
-      if (!seen[e.category]) seen[e.category] = {};
-      seen[e.category][e.date.slice(0,7)] = 1;
+      same[e.amount] = (same[e.amount] || 0) + 1;
     });
     var items = [], total = 0;
     list.forEach(function(e){
       if (!isOut(e) || FIXED[e.category]) return;
-      if (e.amount < 5000) return;
-      var appear = Object.keys(seen[e.category] || {}).length;
-      if (appear / n >= 0.6) return;  // ほぼ毎月出ているものは特別費ではない
+      if (e.amount < 10000) return;
+      if ((same[e.amount] || 0) >= 3) return;  // 毎月の決まった支払い
       total += e.amount;
       items.push(e);
     });
@@ -1053,7 +1053,7 @@ input[type="text"],input[type="date"]{width:100%;padding:9px 10px;border:1px sol
       if (sf.items.length > 8){
         sfc.appendChild(el("p","hint","ほかに " + (sf.items.length - 8) + " 件あります。"));
       }
-      sfc.appendChild(el("p","hint","5,000円以上で、ほとんどの月には出ていない支出だけを集めています。これを月割りにして先に取り分けておくと、来た月に慌てません。"));
+      sfc.appendChild(el("p","hint","1万円以上の支出のうち、毎月の決まった支払い（家賃・ローンなど、同じ額が何度も出るもの）を除いて集めています。これを月割りにして先に取り分けておくと、来た月に慌てません。"));
     }
     box.appendChild(sfc);
 
