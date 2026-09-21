@@ -164,6 +164,8 @@ input[type="text"],input[type="date"]{width:100%;padding:9px 10px;border:1px sol
 .impbtn{display:inline-block;border:1px solid var(--accent);color:var(--accent);background:transparent;
   border-radius:7px;padding:8px 14px;font-size:13px;cursor:pointer;font-family:inherit;font-weight:700}
 .impbtn:hover{background:var(--accent-soft)}
+.impbtn.danger{border-color:var(--warn);color:var(--warn)}
+.impbtn.danger:hover{background:var(--warn);color:#fff}
 .imp{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .hint{font-size:11.5px;color:var(--ink-faint);margin:8px 0 0;line-height:1.8}
 .impresult{font-size:12.5px;color:var(--ink-soft);margin:10px 0 0;padding:10px;
@@ -227,6 +229,7 @@ input[type="text"],input[type="date"]{width:100%;padding:9px 10px;border:1px sol
       <label class="impbtn" for="csvfile">CSVを取り込む</label>
       <input type="file" id="csvfile" accept=".csv,text/csv" style="display:none">
       <button class="impbtn" id="csvout" type="button">CSVに書き出す</button>
+      <button class="impbtn danger" id="wipe" type="button">全部消す</button>
     </div>
     <p class="hint">
       取り込み：いま使っている家計簿アプリから出したCSV。<strong>支出だけ</strong>入ります。<br>
@@ -578,6 +581,17 @@ input[type="text"],input[type="date"]{width:100%;padding:9px 10px;border:1px sol
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     setTimeout(function(){ URL.revokeObjectURL(a.href); }, 1000);
     toast(list.length + "件を書き出しました");
+  });
+
+  document.getElementById("wipe").addEventListener("click", function(){
+    var n = load().length;
+    if (!n){ toast("消すものがありません"); return; }
+    if (!confirm(n + "件すべてを消します。\n先に「CSVに書き出す」で保存しておけば戻せます。\n\n進めますか？")) return;
+    if (!confirm("本当に消します。この操作は取り消せません。")) return;
+    try { localStorage.removeItem(KEY); } catch(e){}
+    refreshHeader(); renderList();
+    showImport("全部消しました。");
+    toast("全部消しました");
   });
 
   function refreshHeader(){
