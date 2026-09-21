@@ -717,6 +717,111 @@ input[type="text"],input[type="date"]{width:100%;padding:9px 10px;border:1px sol
     return wrap;
   }
 
+  // 収支を積み上げた線。月ごとの数字では見えない「崖」を出す
+  function cumChart(list){
+    var ms = monthsOf(list);
+    if (ms.length < 2) return null;
+
+    var cum = 0, data = [];
+    ms.forEach(function(m){
+      var s = sumBy(list, m);
+      cum += (s.inc - s.out);
+      data.push({ m: m, v: cum });
+    });
+
+    var mx = 0, mn = 0, lowIdx = 0, i;
+    for (i = 0; i < data.length; i++){
+      if (data[i].v > mx) mx = data[i].v;
+      if (data[i].v < mn) mn = data[i].v;
+      if (data[i].v < data[lowIdx].v) lowIdx = i;
+    }
+    var range = (mx - mn) || 1;
+
+    var W = 600, H = 200, padL = 8, padR = 8, padT = 16, padB = 34;
+    var iw = W - padL - padR, ih = H - padT - padB;
+    function X(k){ return padL + (data.length === 1 ? iw / 2 : iw * k / (data.length - 1)); }
+    function Y(v){ return padT + ih * (mx - v) / range; }
+
+    var ns = "http://www.w3.org/2000/svg";
+    var svg = document.createElementNS(ns, "svg");
+    svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+    svg.setAttribute("class", "bars");
+    svg.setAttribute("role", "img");
+    svg.setAttribute("aria-label", "収支を積み上げた推移");
+
+    var zy = Y(0);
+    var zl = document.createElementNS(ns, "line");
+    zl.setAttribute("x1", padL); zl.setAttribute("x2", W - padR);
+    zl.setAttribute("y1", zy); zl.setAttribute("y2", zy);
+    zl.setAttribute("stroke", "var(--ink-faint)");
+    zl.setAttribute("stroke-dasharray", "4 4");
+    zl.setAttribute("stroke-width", "1");
+    svg.appendChild(zl);
+
+    var line = "M " + X(0) + " " + Y(data[0].v);
+    for (i = 1; i < data.length; i++) line += " L " + X(i) + " " + Y(data[i].v);
+
+    var area = document.createElementNS(ns, "path");
+    area.setAttribute("d", line + " L " + X(data.length - 1) + " " + zy + " L " + X(0) + " " + zy + " Z");
+    area.setAttribute("fill", "var(--warn)");
+    area.setAttribute("opacity", "0.13");
+    svg.appendChild(area);
+
+    var pl = document.createElementNS(ns, "path");
+    pl.setAttribute("d", line);
+    pl.setAttribute("fill", "none");
+    pl.setAttribute("stroke", "var(--accent)");
+    pl.setAttribute("stroke-width", "2");
+    pl.setAttribute("stroke-linejoin", "round");
+    svg.appendChild(pl);
+
+    data.forEach(function(d, k){
+      var big = (k === lowIdx || k === data.length - 1);
+      var c = document.createElementNS(ns, "circle");
+      c.setAttribute("cx", X(k)); c.setAttribute("cy", Y(d.v));
+      c.setAttribute("r", big ? 4 : 2.5);
+      c.setAttribute("fill", d.v < 0 ? "var(--warn)" : "var(--accent)");
+      var t = document.createElementNS(ns, "title");
+      t.textContent = d.m + "  " + signed(d.v) + "円";
+      c.appendChild(t);
+      svg.appendChild(c);
+
+      if (k === 0 || k === lowIdx || k === data.length - 1){
+        var lab = document.createElementNS(ns, "text");
+        lab.setAttribute("x", X(k));
+        lab.setAttribute("y", H - 18);
+        lab.setAttribute("text-anchor", k === 0 ? "start" : (k === data.length - 1 ? "end" : "middle"));
+        lab.setAttribute("font-size", "11");
+        lab.setAttribute("fill", "var(--ink-faint)");
+        lab.textContent = d.m.split("-").join("/");
+        svg.appendChild(lab);
+
+        var val = document.createElementNS(ns, "text");
+        val.setAttribute("x", X(k));
+        val.setAttribute("y", H - 4);
+        val.setAttribute("text-anchor", k === 0 ? "start" : (k === data.length - 1 ? "end" : "middle"));
+        val.setAttribute("font-size", "11");
+        val.setAttribute("font-weight", "700");
+        val.setAttribute("fill", d.v < 0 ? "var(--warn)" : "var(--accent)");
+        val.textContent = signed(d.v);
+        svg.appendChild(val);
+      }
+    });
+
+    var wrap = el("div", "card");
+    wrap.appendChild(el("h2", null, "積み上げた収支（全期間）"));
+    wrap.appendChild(svg);
+
+    var now = data[data.length - 1].v;
+    var low = data[lowIdx];
+    var p = el("p", "hint");
+    p.textContent = "いまの積み上げは " + signed(now) + "円。いちばん落ちたのは " +
+      low.m.split("-").join("/") + " の " + signed(low.v) + "円。" +
+      "月ごとの数字だけ見ていると、この落ち方は見えません。";
+    wrap.appendChild(p);
+    return wrap;
+  }
+
   function renderReport(){
     var list = load();
     var box = document.getElementById("report");
@@ -754,6 +859,9 @@ input[type="text"],input[type="date"]{width:100%;padding:9px 10px;border:1px sol
     kp.appendChild(kpi("支出", yen(cur.out)));
     kp.appendChild(kpi("収支", signed(cur.inc - cur.out), (cur.inc - cur.out) < 0 ? "neg" : ""));
     box.appendChild(kp);
+
+    var cc0 = cumChart(list);
+    if (cc0) box.appendChild(cc0);
 
     var cmpCard = el("div","card");
     cmpCard.appendChild(el("h2", null, "過去と比べる"));
