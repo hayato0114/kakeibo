@@ -116,6 +116,14 @@ input[type="text"],input[type="date"]{
   font-size:17px;cursor:pointer;padding:2px 6px;line-height:1;font-family:inherit}
 .del:hover{color:var(--warn)}
 
+.imp{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.impbtn{display:inline-block;border:1px solid var(--accent);color:var(--accent);background:transparent;
+  border-radius:7px;padding:8px 14px;font-size:13px;cursor:pointer;font-family:inherit;font-weight:700}
+.impbtn:hover{background:var(--accent-soft)}
+.hint{font-size:11.5px;color:var(--ink-faint);margin:8px 0 0;line-height:1.8}
+.impresult{font-size:12.5px;color:var(--ink-soft);margin:10px 0 0;padding:10px;
+  background:var(--accent-soft);border-radius:7px;line-height:1.8;display:none}
+.impresult.on{display:block}
 .empty{text-align:center;color:var(--ink-faint);font-size:13.5px;padding:28px 10px;line-height:2}
 .foot{font-size:11.5px;color:var(--ink-faint);text-align:center;padding:10px 0 0;line-height:1.9}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom,0px));
@@ -158,6 +166,19 @@ input[type="text"],input[type="date"]{
   <button id="save">保存</button>
 </div>
 
+<div class="card">
+  <span class="lbl">過去データの取り込み</span>
+  <div class="imp">
+    <label class="impbtn" for="csvfile">CSVを選ぶ</label>
+    <input type="file" id="csvfile" accept=".csv,text/csv" style="display:none">
+  </div>
+  <p class="hint">
+    いま使っている家計簿アプリから出したCSV。<strong>支出だけ</strong>取り込みます。<br>
+    過去の記録に満足度は付けられないので、そこは空のまま入ります。
+  </p>
+  <p class="impresult" id="impresult"></p>
+</div>
+
 <div id="list"></div>
 
 <p class="foot">
@@ -178,7 +199,7 @@ input[type="text"],input[type="date"]{
     {n:"趣味"},      {n:"交際費"},    {n:"衣服"},     {n:"書籍/資格"},
     {n:"医療費"},    {n:"車関係"},
     {n:"家賃",f:1},  {n:"光熱費",f:1},{n:"通信費",f:1},{n:"サブスク",f:1},
-    {n:"投資",f:1},  {n:"その他"}
+    {n:"投資",f:1},  {n:"クレジットカード",f:1}, {n:"その他"}
   ];
 
   var SATCOLOR = {1:"var(--sat-low)",2:"var(--sat-mid)",3:"var(--sat-high)"};
@@ -268,6 +289,99 @@ input[type="text"],input[type="date"]{
     render();
     toast("保存しました  " + yen(amt));
     amountEl.focus();
+  });
+
+  // ---- CSV の取り込み ----------------------------------------------
+  function decodeAuto(buf){
+    var u = new TextDecoder("utf-8").decode(buf), sj = u;
+    try { sj = new TextDecoder("shift_jis").decode(buf); } catch(e){ return u; }
+    var cu = (u.match(/\uFFFD/g) || []).length;
+    var cs = (sj.match(/\uFFFD/g) || []).length;
+    return cs < cu ? sj : u;
+  }
+
+  function splitCsvLine(line){
+    var out = [], cur = "", q = false;
+    for (var i = 0; i < line.length; i++){
+      var ch = line[i];
+      if (q){
+        if (ch === '"'){ if (line[i+1] === '"'){ cur += '"'; i++; } else { q = false; } }
+        else cur += ch;
+      } else {
+        if (ch === '"') q = true;
+        else if (ch === ","){ out.push(cur); cur = ""; }
+        else cur += ch;
+      }
+    }
+    out.push(cur);
+    return out;
+  }
+
+  function importCsv(text){
+    var lines = text.replace(/\r\n?/g, "\n").split("\n").filter(function(x){ return x.trim(); });
+    if (!lines.length){ showImport("ファイルが空でした。"); return; }
+
+    var head = splitCsvLine(lines.shift()).map(function(h){ return h.replace(/^\uFEFF/, "").trim(); });
+    var iA = head.indexOf("金額"), iD = head.indexOf("日付");
+    var iM = head.indexOf("メモ"), iC = head.indexOf("カテゴリー名");
+    if (iA < 0 || iD < 0){
+      showImport("見出しが読めませんでした。「金額」「日付」の列が必要です。");
+      return;
+    }
+
+    var list = load();
+    var seen = {};
+    list.forEach(function(e){ seen[e.date + "|" + e.amount + "|" + e.category + "|" + e.memo] = 1; });
+
+    var added = 0, income = 0, dup = 0, bad = 0;
+    lines.forEach(function(l){
+      var c = splitCsvLine(l);
+      var amt = Number((c[iA] || "").trim());
+      var date = (c[iD] || "").trim().replace(/\//g, "-");
+      if (!amt || !/^\d{4}-\d{2}-\d{2}$/.test(date)){ bad++; return; }
+      if (amt > 0){ income++; return; }              // 収入は取り込まない
+      var memo = iM >= 0 ? (c[iM] || "").trim() : "";
+      var cat  = iC >= 0 ? (c[iC] || "").trim() : "その他";
+      var amount = Math.abs(Math.round(amt));
+      var key = date + "|" + amount + "|" + cat + "|" + memo;
+      if (seen[key]){ dup++; return; }
+      seen[key] = 1;
+      list.push({
+        id: "csv-" + date + "-" + amount + "-" + Math.random().toString(36).slice(2,7),
+        amount: amount, category: cat, memo: memo, date: date,
+        sat: null, createdAt: new Date().toISOString(), src: "csv"
+      });
+      added++;
+    });
+
+    if (!save(list)) return;
+    render();
+
+    var msg = added + "件を取り込みました。";
+    var skip = [];
+    if (income) skip.push("収入 " + income + "件");
+    if (dup)    skip.push("重複 " + dup + "件");
+    if (bad)    skip.push("読めない行 " + bad + "件");
+    if (skip.length) msg += "（飛ばしたもの：" + skip.join(" / ") + "）";
+    msg += " 取り込んだ分に満足度は入っていません。";
+    showImport(msg);
+    toast(added + "件を取り込みました");
+  }
+
+  function showImport(msg){
+    var el = document.getElementById("impresult");
+    el.textContent = msg;
+    el.classList.add("on");
+  }
+
+  document.getElementById("csvfile").addEventListener("change", function(ev){
+    var f = ev.target.files && ev.target.files[0];
+    if (!f) return;
+    var r = new FileReader();
+    r.onload = function(){ importCsv(decodeAuto(r.result)); };
+    r.onerror = function(){ showImport("ファイルを読めませんでした。"); };
+    r.readAsArrayBuffer(f);
+    ev.target.value = "";
   });
 
   function render(){
