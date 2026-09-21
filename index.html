@@ -322,6 +322,16 @@ input[type="text"],input[type="date"]{width:100%;padding:9px 10px;border:1px sol
   };
   var CARDKEY = "kakeibo_card_v1";
 
+  // マネーフォワードの大項目を、このアプリのカテゴリに寄せる。
+  // 寄せないと「住宅」が固定費として扱われず、家賃が特別費に紛れ込む
+  var CATMAP = {
+    "食費":"食費", "日用品":"日用品", "趣味・娯楽":"趣味", "交際費":"交際費",
+    "交通費":"交通費", "衣服・美容":"衣服", "健康・医療":"医療費", "自動車":"車関係",
+    "教養・教育":"書籍/資格", "住宅":"家賃", "水道・光熱費":"光熱費", "通信費":"通信費",
+    "現金・カード":"クレジットカード", "特別な支出":"その他", "税・社会保障":"その他",
+    "保険":"その他", "その他":"その他"
+  };
+
   var SATCOLOR = {1:"var(--sat-low)", 2:"var(--sat-mid)", 3:"var(--sat-high)"};
   var SATNAME  = {1:"いまいち", 2:"ふつう", 3:"よかった"};
 
@@ -567,6 +577,11 @@ input[type="text"],input[type="date"]{width:100%;padding:9px 10px;border:1px sol
       var cat = cell(iC) || (isIncome ? "その他の収入" : "その他");
       if (cat === "未分類") cat = isIncome ? "その他の収入" : "その他";
       if (isIncome && cat === "収入") cat = "その他の収入";
+      if (!isIncome){
+        if (CATMAP[cat]) cat = CATMAP[cat];
+        if (cat === "食費" && /外食|カフェ|飲み/.test(sub)) cat = "外食費";
+        if (cat === "医療費" && /フィットネス|ボディケア/.test(sub)) cat = "趣味";
+      }
 
       var amount = Math.abs(Math.round(amt));
       var key = (isIncome ? "in|" : "out|") + date + "|" + amount + "|" + cat + "|" + memo;
